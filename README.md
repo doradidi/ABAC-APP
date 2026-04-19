@@ -49,10 +49,3 @@ Section 01: Select a user, resource, and action → click "Evaluate Access" to s
 Section 02: Click "Run All Tests" to execute all 12 test cases
 Section 03: Browse all active policies
 Section 04: View the user attribute store
-Submitting via GitHub
-git init
-git add .
-git commit -m "Add ABAC system with policy engine and test cases"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/abac-app.git
-git push -u origin main
