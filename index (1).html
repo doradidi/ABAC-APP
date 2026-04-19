@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ABAC System – Advanced Access Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon">⬡</span>
+      <span>ABAC <span class="logo-sub">Access Control System</span></span>
+    </div>
+    <div class="header-meta">
+      <span id="clock" class="mono"></span>
+      <span class="env-badge" id="hour-badge"></span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── SECTION 1: Policy Evaluator ── -->
+  <section class="section">
+    <div class="section-label">01 — Policy Evaluator</div>
+    <h2>Evaluate an Access Request</h2>
+    <p class="section-desc">Select a user, resource, and action. The engine evaluates all policies and returns a decision.</p>
+
+    <div class="evaluator-grid">
+      <div class="field-group">
+        <label>Subject (User)</label>
+        <select id="sel-user"></select>
+        <div id="user-attrs" class="attr-chips"></div>
+      </div>
+      <div class="field-group">
+        <label>Resource</label>
+        <select id="sel-resource"></select>
+        <div id="res-attrs" class="attr-chips"></div>
+      </div>
+      <div class="field-group">
+        <label>Action</label>
+        <div class="action-btns" id="action-btns"></div>
+      </div>
+    </div>
+
+    <button class="eval-btn" id="eval-btn">Evaluate Access →</button>
+
+    <div id="decision-card" class="decision-card hidden">
+      <div class="decision-header">
+        <span class="decision-icon" id="d-icon"></span>
+        <span class="decision-label" id="d-label"></span>
+        <span class="decision-detail" id="d-detail"></span>
+      </div>
+      <div class="policy-results" id="policy-results"></div>
+    </div>
+  </section>
+
+  <!-- ── SECTION 2: Test Cases ── -->
+  <section class="section">
+    <div class="section-label">02 — Test Suite</div>
+    <h2>Automated Test Cases</h2>
+    <p class="section-desc">12 pre-defined test cases covering all major policy scenarios.</p>
+    <button class="run-btn" id="run-tests-btn">Run All Tests</button>
+    <div id="test-summary" class="test-summary hidden"></div>
+    <div id="test-results" class="test-list"></div>
+  </section>
+
+  <!-- ── SECTION 3: Policies ── -->
+  <section class="section">
+    <div class="section-label">03 — Policy Definitions</div>
+    <h2>Active Policies</h2>
+    <p class="section-desc">All policies are evaluated on every request. Deny-overrides: a single deny blocks access.</p>
+    <div id="policy-list" class="policy-list"></div>
+  </section>
+
+  <!-- ── SECTION 4: Users ── -->
+  <section class="section">
+    <div class="section-label">04 — Subjects</div>
+    <h2>User Attribute Store</h2>
+    <div id="users-table" class="attr-table"></div>
+  </section>
+
+</main>
+
+<script src="abac.js"></script>
+<script>
+const { USERS, RESOURCES, POLICIES, evaluate, runAllTests } = window.ABAC;
+
+// ── Clock ──
+function updateClock() {
+  const now = new Date();
+  const h = now.getHours();
+  document.getElementById('clock').textContent = now.toLocaleTimeString();
+  const badge = document.getElementById('hour-badge');
+  if (h >= 7 && h < 20) {
+    badge.textContent = 'Business hours';
+    badge.className = 'env-badge env-ok';
+  } else {
+    badge.textContent = 'After hours – writes blocked';
+    badge.className = 'env-badge env-warn';
+  }
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Populate selects ──
+const selUser = document.getElementById('sel-user');
+const selRes  = document.getElementById('sel-resource');
+USERS.forEach(u => {
+  const o = document.createElement('option');
+  o.value = u.id;
+  o.textContent = `${u.name} (${u.role})`;
+  selUser.appendChild(o);
+});
+RESOURCES.forEach(r => {
+  const o = document.createElement('option');
+  o.value = r.id;
+  o.textContent = r.name;
+  selRes.appendChild(o);
+});
+
+function clearanceLabel(n) {
+  return ['','Public','Internal','Confidential','Secret'][n] || n;
+}
+
+function renderUserAttrs() {
+  const u = USERS.find(x => x.id === selUser.value);
+  if (!u) return;
+  document.getElementById('user-attrs').innerHTML = [
+    chip('dept', u.department),
+    chip('clearance', clearanceLabel(u.clearance) + ' (' + u.clearance + ')'),
+    chip('role', u.role),
+    chip('location', u.location),
+    chip('contract', u.contractType),
+  ].join('');
+}
+
+function renderResAttrs() {
+  const r = RESOURCES.find(x => x.id === selRes.value);
+  if (!r) return;
+  document.getElementById('res-attrs').innerHTML = [
+    chip('type', r.type),
+    chip('classification', clearanceLabel(r.classification) + ' (' + r.classification + ')'),
+    chip('owner', r.ownerDept),
+    chip('actions', r.allowedActions.join(', ')),
+  ].join('');
+
+  // Update action buttons
+  const btns = document.getElementById('action-btns');
+  btns.innerHTML = '';
+  r.allowedActions.forEach(a => {
+    const b = document.createElement('button');
+    b.textContent = a;
+    b.className = 'action-btn';
+    b.dataset.action = a;
+    b.onclick = () => {
+      document.querySelectorAll('.action-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    };
+    btns.appendChild(b);
+  });
+  btns.querySelector('.action-btn')?.click();
+}
+
+function chip(label, val) {
+  return `<span class="chip"><span class="chip-label">${label}</span>${val}</span>`;
+}
+
+selUser.addEventListener('change', renderUserAttrs);
+selRes.addEventListener('change', renderResAttrs);
+renderUserAttrs();
+renderResAttrs();
+
+// ── Evaluate ──
+document.getElementById('eval-btn').addEventListener('click', () => {
+  const activeAction = document.querySelector('.action-btn.active');
+  if (!activeAction) return alert('Select an action.');
+  const result = evaluate(selUser.value, selRes.value, activeAction.dataset.action);
+  renderDecision(result);
+});
+
+function renderDecision(result) {
+  const card = document.getElementById('decision-card');
+  card.classList.remove('hidden', 'allow', 'deny');
+  card.classList.add(result.decision);
+
+  document.getElementById('d-icon').textContent  = result.decision === 'allow' ? '✓' : '✗';
+  document.getElementById('d-label').textContent = result.decision.toUpperCase();
+  document.getElementById('d-detail').textContent =
+    result.decision === 'allow'
+      ? `${result.subject.name} may ${result.action} "${result.resource.name}"`
+      : `${result.subject.name} is DENIED ${result.action} on "${result.resource.name}"`;
+
+  const pr = document.getElementById('policy-results');
+  pr.innerHTML = result.triggered.map(p => `
+    <div class="policy-row ${p.effect}">
+      <span class="policy-effect-badge ${p.effect}">${p.effect.toUpperCase()}</span>
+      <span class="policy-name">${p.name}</span>
+      <span class="policy-desc">${p.description}</span>
+    </div>
+  `).join('');
+}
+
+// ── Test Suite ──
+document.getElementById('run-tests-btn').addEventListener('click', () => {
+  const results = runAllTests();
+  const passed  = results.filter(r => r.passed).length;
+
+  const summary = document.getElementById('test-summary');
+  summary.classList.remove('hidden', 'all-pass', 'some-fail');
+  summary.classList.add(passed === results.length ? 'all-pass' : 'some-fail');
+  summary.innerHTML = `
+    <span class="summary-count">${passed}/${results.length}</span>
+    <span>tests passed</span>
+    ${passed < results.length ? `<span class="fail-count">${results.length - passed} failed</span>` : ''}
+  `;
+
+  const list = document.getElementById('test-results');
+  list.innerHTML = results.map(tc => `
+    <div class="test-item ${tc.passed ? 'pass' : 'fail'}">
+      <span class="test-status">${tc.passed ? '✓' : '✗'}</span>
+      <div class="test-body">
+        <div class="test-id mono">${tc.id}</div>
+        <div class="test-desc">${tc.description}</div>
+        <div class="test-meta">
+          Expected: <strong>${tc.expected}</strong> &nbsp;|&nbsp;
+          Got: <strong>${tc.result.decision}</strong>
+          ${!tc.passed ? `<span class="mismatch"> ← MISMATCH</span>` : ''}
+          ${tc.result.deniedBy.length ? `<span class="denied-by"> | Denied by: ${tc.result.deniedBy.map(p=>p.name).join(', ')}</span>` : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+});
+
+// ── Policies list ──
+document.getElementById('policy-list').innerHTML = POLICIES.map(p => `
+  <div class="policy-card">
+    <div class="policy-card-header">
+      <span class="mono pc-id">${p.id}</span>
+      <span class="pc-effect ${p.effect}">${p.effect.toUpperCase()}</span>
+    </div>
+    <div class="pc-name">${p.name}</div>
+    <div class="pc-desc">${p.description}</div>
+  </div>
+`).join('');
+
+// ── Users table ──
+document.getElementById('users-table').innerHTML = `
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Department</th><th>Role</th>
+        <th>Clearance</th><th>Location</th><th>Contract</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${USERS.map(u => `
+        <tr>
+          <td><span class="avatar">${u.avatar}</span> ${u.name}</td>
+          <td>${u.department}</td>
+          <td>${u.role}</td>
+          <td><span class="cl-badge cl-${u.clearance}">${clearanceLabel(u.clearance)}</span></td>
+          <td>${u.location}</td>
+          <td>${u.contractType}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+`;
+</script>
+
+</body>
+</html>
